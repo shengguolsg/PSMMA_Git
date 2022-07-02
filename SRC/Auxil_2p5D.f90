@@ -1,0 +1,963 @@
+
+    SUBROUTINE ConstIndex( N, NB, MYCOL, NPCOL, CINdex, Length )
+!
+    IMPLICIT NONE
+!
+!  ---- ******* ---
+    INTEGER  ::   N, NB, MYCOL, NPCOL, Length
+    INTEGER  ::   CIndex(*)
+!    INTEGER, INTENT(out), OPTIONAL :: Length
+!
+!   ========
+! N     INTEGER (input)
+!       The column dimension of matrix
+!
+! NB    INTEGER (input)
+!       The block size for block cyclic distribution
+!
+! MYCOL INTEGER (input)
+!        The column label of current process, it starts from 0
+!
+! NPCOL INTEGER (input)
+!        The column size of process grid
+!
+! CIndex INTEGER (output)
+!        The column index of current process contains.
+!
+! ==========
+!  Written by Shengguo Li
+!  It is written for Cauchy matrix multiplications.
+! =====================================
+!
+    INTEGER :: I, J, KNB, TMP, NFSeg, Cstart, Gap, Len, Left
+!
+    INTEGER, EXTERNAL :: ICEIL
+
+    !KNB = ICEIL(N,NB)    ! The total number of blocks or minus 1
+    KNB = N/NB
+    TMP = 1
+    Length = 0
+
+    NFSeg = KNB/NPCOL
+    Cstart = MYCOL*NB+1
+    Gap = NPCOL*NB
+
+    DO I=1, NFSeg        ! Each segment has NB continous index
+        CIndex(TMP:TMP+NB-1) = (/ (J, J=Cstart, Cstart+NB-1) /)
+        Cstart = Cstart+Gap
+        TMP = TMP+NB
+        Length = TMP-1
+    END DO
+
+    ! Deal with the last segment, check whether is one more block or part
+    Left = N-NFSeg*Gap-MYCOL*NB
+    IF( Left .GT. 0 ) THEN
+        Len = MIN(NB, Left)
+        CIndex(TMP:TMP+Len-1) = (/ (J, J=Cstart, Cstart+Len-1) /)
+        Length = TMP+Len-1
+    END IF
+
+!    IF( present(Length) )   THEN
+!        Length= TMP+Len-1
+!    END IF 
+
+    RETURN
+
+END SUBROUTINE ConstIndex
+
+SUBROUTINE ConstCauchy( LM,LN,A,LDA,B,RIndex,CIndex )
+!
+        use cauchylowrank
+        IMPLICIT NONE
+!
+!     HSSPACK
+!     S.G. Li,  National University of Defense Technology
+!     May 11th, 2020.  .
+!
+!     .. Scalar Arguments ..
+        INTEGER            LM, LN, LDA
+!     ..
+!     .. Array Arguments ..
+        DOUBLE PRECISION   A( LDA,* ), B( * )
+        INTEGER ::         RIndex(*), CIndex(*)
+!  ..
+!  Purpose
+!  =======
+!
+!  This routine constructs a Cauchy-like matrix locally with generators stored
+!  in matrix A, which has four or five columns. B is used as a workspace to
+!  store the compute Cauchy-like submatrix, and the indexes of row generators are 
+!  stored in RIndex and the columns indexes are stored in CIndex. 
+!      
+!  Arguments
+!  =========
+!
+!  M      - (input) INTEGER
+!           The row dimension of locally matrix B, to be constructed.
+!
+!  N      - (input) INTEGER
+!           The column dimension of locally matrix B, to be constructed.
+!
+!  A      - (input) DOUBLE PRECISION Array, with dimension (LDA, 4 or 5)
+!           Stores the generators of a Cauchy-like matrix. A =[U V D W]
+!
+!  LDA    - (input) INTEGER
+!           Leading dimension of A
+!
+!  B      - (output) DOUBLE PRECISION,
+!           Stores the constructed Cauchy-like matrix with dimension (M, N).
+!           B is defined as B_{ij} = U_i*V_j / (D_i -W_j), for i,j=1,...,M.
+!
+!           B is approximated by two low-rank matrices, B=X*Y, X is M-by-Rk,
+!           and Y is Rk-by-N. X is stored in the first part of B, and Y is
+!           stored in the second part. B is used as 1D array.
+!
+! RInd_start  - (input) INTEGER
+!               The starting position for row generators
+!
+! CInd_Start  - (input) INTEGER
+!               The starting position for column generators
+!
+!  Rk     - (output) INTEGER
+!           It records the rank of this off-diagonal block.
+!
+! ======================================================================
+
+!     ..
+!     .. Local Scalars ..
+!        DOUBLE PRECISION :: time, time1
+!     ..
+!     .. Local Arrays ..
+        DOUBLE PRECISION, ALLOCATABLE :: D(:), F(:), U(:), V(:)
+
+!     ..
+!     .. Execution Parts ..
+
+        ALLOCATE( D(LM),F(LN),U(LM),V(LN) )
+
+        D(1:LM) = A(RIndex(1:LM),1)
+        F(1:LN) = A(CIndex(1:LN),2)
+        U(1:LM) = A(RIndex(1:LM),3)
+        V(1:LN) = A(CIndex(1:LN),4)
+
+        !call cpu_time(time)
+        call Cauchylike( B,D,F,U,V,LM,LN )
+        !call cpu_time(time1)
+        !time = time1 - time
+        !write(*,*) 'Construct Cauchylike costs', time, M, N
+
+        DEALLOCATE( D,F,U,V )
+
+END SUBROUTINE ConstCauchy
+
+SUBROUTINE ConstToeplitz( LM,LN,G,LDG,K,T,RIndex,CIndex )
+!
+      IMPLICIT NONE
+!
+!     HSSPACK
+!     S.G. Li,  National University of Defense Technology
+!     June 22th, 2022  ...
+!
+!     .. Scalar Arguments ..
+        INTEGER            LM, LN, LDG, K
+!     ..
+!     .. Array Arguments ..
+        DOUBLE PRECISION   G( * ), T( * )
+        INTEGER ::         RIndex(*), CIndex(*)
+!  ..
+!  Purpose
+!  =======
+!
+!  This routine constructs a block Toeplitz matrix locally with generators stored
+!  in vector G, which has LDG entries and LDG=2K-1 or K. B is used as a workspace to
+!  store the compute Toeplitz submatrices, and the indexes of row generators are 
+!  stored in RIndex and the columns indexes are stored in CIndex. B is the local
+!  submatrices of a Toeplitz matrix in block cyclic form. B(i,j)= G(K+j-i) for 
+!  i=1,...,LM, j=1,...,LN.         
+!
+!  Arguments
+!  =========
+!
+!  M      - (input) INTEGER
+!           The row dimension of locally matrix B, to be constructed.
+!
+!  N      - (input) INTEGER
+!           The column dimension of locally matrix B, to be constructed.
+!
+!  G      - (input) DOUBLE PRECISION Array, with length ( LDG )
+!           Stores the generators of a Toeplitz matrix. 
+!           The first column of Toeplitz matrix including the diagonal are 
+!           stored in G(1:K) from bottom to top, and the first row entries 
+!           of T are stored in G(K+1:end). 
+!
+!  LDG    - (input) INTEGER
+!           Length of array G.
+!
+!  K      - (input) INTEGER
+!           The row and column dimension of Toeplitz matrix B. 
+!         
+!  T      - (output) DOUBLE PRECISION,
+!           Stores the constructed block Toeplitz matrix T with dimension (LM, LN).
+!           The entries of T are calculated from T(i,j)= G(K+j-i), for i,j = 1,...,K. 
+!
+! RIndex  - (input) INTEGER
+!           The row index of submatrices.
+!
+! CIndex  - (input) INTEGER
+!           The column index of submatrices.
+!
+! ======================================================================
+
+!     ..
+!     .. Local Scalars ..
+!        DOUBLE PRECISION :: time, time1
+        INTEGER :: I, J, tmp, I1, J1
+!     ..
+!     .. Local Arrays ..
+
+!     ..
+!     .. Execution Parts ..
+
+        tmp = 1
+        
+        !call cpu_time(time)
+        DO J = 1, LN
+           J1 = CIndex(J)
+           DO I = 1, LM
+              I1 = RIndex(I)
+              T(tmp+I-1) = G( K+J1-I1 )
+           END DO
+           tmp = tmp + LM
+        END DO
+        !call cpu_time(time1)
+        !time = time1 - time
+        !write(*,*) 'Construct Toeplitz costs', time, M, N
+
+END SUBROUTINE ConstToeplitz
+
+SUBROUTINE ConstHankel( LM,LN,G,LDG,K,T,RIndex,CIndex )
+!
+      IMPLICIT NONE
+!
+!     HSSPACK
+!     S.G. Li,  National University of Defense Technology
+!     June 22th, 2022  ...
+!
+!     .. Scalar Arguments ..
+        INTEGER            LM, LN, LDG, K
+!     ..
+!     .. Array Arguments ..
+        DOUBLE PRECISION   G( * ), T( * )
+        INTEGER ::         RIndex(*), CIndex(*)
+!  ..
+!  Purpose
+!  =======
+!
+!  This routine constructs a block Toeplitz matrix locally with generators stored
+!  in vector G, which has LDG entries and LDG=2K-1 or K. B is used as a workspace to
+!  store the compute Toeplitz submatrices, and the indexes of row generators are 
+!  stored in RIndex and the columns indexes are stored in CIndex. B is the local
+!  submatrices of a Toeplitz matrix in block cyclic form. B(i,j)= G(K+j-i) for 
+!  i=1,...,LM, j=1,...,LN.         
+!
+!  Arguments
+!  =========
+!
+!  M      - (input) INTEGER
+!           The row dimension of locally matrix B, to be constructed.
+!
+!  N      - (input) INTEGER
+!           The column dimension of locally matrix B, to be constructed.
+!
+!  G      - (input) DOUBLE PRECISION Array, with length ( LDG )
+!           Stores the generators of a Hankel matrix. 
+!           The first row of Hankel matrix including the anti-diagonal are 
+!           stored in G(1:K) from left to right, and the last column entries 
+!           of T are stored in G(K+1:end). 
+!
+!  LDG    - (input) INTEGER
+!           Length of array G.
+!
+!  K      - (input) INTEGER
+!           The row and column dimension of Toeplitz matrix B. 
+!         
+!  T      - (output) DOUBLE PRECISION,
+!           Stores the constructed block Hankel matrix T with dimension (LM, LN).
+!           The entries of T are calculated from T(i,j)= G(i+j-1), for i,j = 1,...,K. 
+!
+! RIndex  - (input) INTEGER
+!           The row index of submatrices.
+!
+! CIndex  - (input) INTEGER
+!           The column index of submatrices.
+!
+! ======================================================================
+
+!     ..
+!     .. Local Scalars ..
+!        DOUBLE PRECISION :: time, time1
+        INTEGER :: I, J, tmp, I1, J1
+!     ..
+!     .. Local Arrays ..
+
+!     ..
+!     .. Execution Parts ..
+
+        tmp = 1
+        
+        !call cpu_time(time)
+        DO J = 1, LN
+           J1 = CIndex(J)
+           DO I = 1, LM
+              I1 = RIndex(I)
+              T(tmp+I-1) = G( I1+J1-1  )
+           END DO
+           tmp = tmp + LM
+        END DO
+        !call cpu_time(time1)
+        !time = time1 - time
+        !write(*,*) 'Construct Toeplitz costs', time, M, N
+
+
+      END SUBROUTINE ConstHankel
+
+SUBROUTINE Redist2P5( TB, B, LDB, NCB, K, NB, NPZC, NPCOL, myid )
+!
+    IMPLICIT NONE
+!
+!  ---- ******* ---
+    INTEGER  ::   LDB, NCB, NB, NPZC, NPCOL, K, myid
+!   ..
+!   .. Arrays ..    
+    DOUBLE PRECISION  ::   B(LDB,NCB), TB(LDB,NCB)
+!
+!   ========
+! B     DOUBLE PRECISION (inout)
+!       On entry, it stores the generators of Cauchy-like matrices, B=[D, F, U, V].
+!       On exist, these generators are permuted based on the process redistribution. 
+!            
+! LDB   INTEGER (input)
+!       The the leading dimension of matrix B
+!
+! NCB   INTEGER (input)
+!       The column dimension of matrix B
+! 
+! K     INTEGER (input)
+!       The row and column dimension of the Cauchy matrix interested. 
+!   
+! NB    INTEGER (input)
+!       The block size for block cyclic distribution
+!
+! NPZC  INTEGER (input)
+!       The column number of process grid at each level of 2.5D grid. 
+!
+! NPCOL INTEGER (input)
+!        The column size of the original 2D process grid
+!
+! ==========
+!  Written by Shengguo Li
+!  It is written for Cauchy matrix multiplications.
+!
+!  This routine assume that NPCOL is dividable by NPZC.         
+! =====================================
+!
+    INTEGER :: MYCOL, I, J,Cstart, LNPCOL,locc, Length
+!
+    INTEGER, ALLOCATABLE :: CIndex(:)    
+!
+    INTEGER, EXTERNAL :: ICEIL, NUMROC
+
+    ALLOCATE( CIndex(K) )
+
+    LNPCOL = NPCOL/NPZC 
+
+    IF( NPCOL .NE. LNPCOL*NPZC ) THEN
+        WRITE(*,*) "Error: NPZC must divide NPCOL"
+        RETURN
+    END IF
+
+!    Write(*,*) "Entering Redist2p5"
+    Cstart = 1
+    DO I=0, LNPCOL-1
+        DO J=0, NPZC-1
+            MYCOL = I+J*LNPCOL
+            locc = NUMROC( K,NB,MYCOL,0,NPCOL )
+            Call ConstIndex( K,NB,MYCOL,NPCOL,CIndex(Cstart),Length )
+            Cstart = Cstart+locc
+        END DO
+    END DO
+
+!    If(myid .eq. 0) write(*,*) "Cindex=", Cindex(1:K)
+
+!    WRITE(*,*) "Before reordering"
+
+    !TB(1:K,1:NCB) = B(CIndex,1:NCB)
+    ! TB(1:K,1) = B(CIndex,1)
+    ! TB(1:K,2) = B(CIndex,2)
+    ! TB(1:K,3) = B(CIndex,3)
+    ! TB(1:K,4) = B(CIndex,4)
+
+    DO J=1,NCB
+        DO I=1,K
+            TB(I,J) = B(CIndex(I),J)
+        END DO
+    END DO
+
+!    WRITE(*,*) "After reordering"
+    
+    DEALLOCATE(CIndex)
+
+END SUBROUTINE Redist2P5
+
+SUBROUTINE Redist2P5a( PIndex, K, NB, NPZC, NPCOL, myid )
+    !
+        IMPLICIT NONE
+    !
+    !  ---- ******* ---
+        INTEGER  ::   K, NB, NPZC, NPCOL, myid
+    !   ..
+    !   .. Arrays ..    
+        INTEGER  ::   PIndex(:)
+    !
+    !   ========
+    ! B     DOUBLE PRECISION (inout)
+    !       On entry, it stores the generators of Cauchy-like matrices, B=[D, F, U, V].
+    !       On exist, these generators are permuted based on the process redistribution. 
+    !            
+    ! LDB   INTEGER (input)
+    !       The the leading dimension of matrix B
+    !
+    ! NCB   INTEGER (input)
+    !       The column dimension of matrix B
+    ! 
+    ! K     INTEGER (input)
+    !       The row and column dimension of the Cauchy matrix interested. 
+    !   
+    ! NB    INTEGER (input)
+    !       The block size for block cyclic distribution
+    !
+    ! NPZC  INTEGER (input)
+    !       The column number of process grid at each level of 2.5D grid. 
+    !
+    ! NPCOL INTEGER (input)
+    !        The column size of the original 2D process grid
+    !
+    ! ==========
+    !  Written by Shengguo Li, 05-13, 2020
+    !  It is written for Cauchy matrix multiplications.
+    !
+    !  This routine assume that NPCOL is dividable by NPZC.         
+    ! =====================================
+    !
+        INTEGER :: MYCOL, I, J,Cstart,LNPCOL,locc,Length
+    !
+    !
+        INTEGER, EXTERNAL :: NUMROC
+        
+        LNPCOL = NPCOL/NPZC 
+    
+        IF( NPCOL .NE. LNPCOL*NPZC ) THEN
+            WRITE(*,*) "Error: NPZC must divide NPCOL"
+            RETURN
+        END IF
+    
+    !    Write(*,*) "Entering Redist2p5"
+        Cstart = 1
+        DO I=0, LNPCOL-1
+            DO J=0, NPZC-1
+                MYCOL = I+J*LNPCOL
+                locc = NUMROC( K,NB,MYCOL,0,NPCOL )
+                Call ConstIndex( K,NB,MYCOL,NPCOL,PIndex(Cstart),Length )
+                Cstart = Cstart+locc
+            END DO
+        END DO
+    
+    
+    !    WRITE(*,*) "After reordering"
+        
+    END SUBROUTINE Redist2P5a
+
+    SUBROUTINE ConstIndex1( N, NB, MYCOL, NPCOL, CINdex,PIndex )
+!
+    IMPLICIT NONE
+!
+!  ---- ******* ---
+    INTEGER  ::   N, NB, MYCOL, NPCOL
+    INTEGER  ::   CIndex(*),PIndex(*)
+!
+!   ========
+! N     INTEGER (input)
+!       The column dimension of matrix
+!
+! NB    INTEGER (input)
+!       The block size for block cyclic distribution
+!
+! MYCOL INTEGER (input)
+!        The column label of current process, it starts from 0
+!
+! NPCOL INTEGER (input)
+!        The column size of process grid
+!
+! CIndex INTEGER (output)
+!        The column index of current process contains.
+!
+! ==========
+!  Written by Shengguo Li
+!  It is written for Cauchy matrix multiplications.
+! =====================================
+!
+    INTEGER :: I, KNB, TMP, NFSeg, Cstart, Gap
+!
+    INTEGER, EXTERNAL :: ICEIL
+
+    KNB = ICEIL(N,NB)    ! The total number of blocks or minus 1
+    TMP = 1
+
+    NFSeg = KNB/NPCOL
+    Cstart = MYCOL*NB+1
+    Gap = NPCOL*NB
+
+    DO I=1, NFSeg        ! Each segment has NB continous index
+        CIndex(TMP:TMP+NB-1) = PIndex( Cstart:Cstart+NB-1 ) 
+        Cstart = Cstart+Gap
+        TMP = TMP+NB
+    END DO
+
+            
+END SUBROUTINE ConstIndex1
+
+! =====================================
+! =====================================
+
+SUBROUTINE ConstCauchyEig( LM,LN,A,F,U,V,DIFL,DIFR,RIndex,CIndex) 
+    !
+            use BasicMM
+            use CauchyHssEig
+            IMPLICIT NONE
+    !
+    !     HSSPACK 
+    !     S.G. Li,  National University of Defense Technology
+    !     August 31th, 2019.  .
+    !
+    !     .. Scalar Arguments ..
+          INTEGER            LM, LN
+    !     ..
+    !     .. Array Arguments ..
+          INTEGER            RIndex( * ), CIndex(*)
+          DOUBLE PRECISION   A(*),F(*),U(*),V(*),DIFL(*), &
+                             DIFR( * )
+    !
+    !     ..
+    !
+    !  Purpose
+    !  =======
+    !
+    !  This routine constructs a Cauchy-like matrix locally with generators stored
+    !  in matrix A, which has four or five columns. B is used as a workspace to 
+    !  store the compute low-rank approximation of locally Cauchy-like submatrix.  
+    !
+    !  A(i,j) = U(i)*V^T(j) / (F(i)-D(j) )
+    !
+    !  Arguments
+    !  =========
+    !
+    !  M      - (input) INTEGER
+    !           The row dimension of locally matrix B, to be constructed. 
+    ! 
+    !  N      - (input) INTEGER
+    !           The column dimension of locally matrix B, to be constructed. 
+    ! 
+    !  A      - (input) DOUBLE PRECISION Array, with dimension (LDA, 4 or 5) 
+    !           Stores the generators of a Cauchy-like matrix. A =[U V D W] 
+    ! 
+    !  LDA    - (input) INTEGER
+    !           Leading dimension of A
+    !
+    !  B      - (output) DOUBLE PRECISION,  
+    !           Stores the constructed Cauchy-like matrix with dimension (M, N).
+    !           B is defined as B_{ij} = U_i*V_j / (D_i -W_j), for i,j=1,...,M.  
+    !
+    !           B is approximated by two low-rank matrices, B=X*Y, X is M-by-Rk, 
+    !           and Y is Rk-by-N. X is stored in the first part of B, and Y is 
+    !           stored in the second part. B is used as 1D array. 
+    ! 
+    ! RInd_start  - (input) INTEGER
+    !               The starting position for row generators   
+    !
+    ! CInd_Start  - (input) INTEGER
+    !               The starting position for column generators
+    !
+    !  Rk     - (output) INTEGER
+    !           It records the rank of this off-diagonal block. 
+    !
+    ! ====================================================================== 
+    !
+    !     .. Parameters ..
+    !
+          INTEGER            BLOCK_CYCLIC_2D, DLEN_, DTYPE_, CTXT_, M_, N_, &
+                             MB_, NB_, RSRC_, CSRC_, LLD_
+          PARAMETER          ( BLOCK_CYCLIC_2D = 1, DLEN_ = 9, DTYPE_ = 1, &
+                             CTXT_ = 2, M_ = 3, N_ = 4, MB_ = 5, NB_ = 6, &
+                             RSRC_ = 7, CSRC_ = 8, LLD_ = 9 )
+    !     ..
+    !     .. Local Scalars ..
+    !      DOUBLE PRECISION :: time, time1
+    !      INTEGER          :: ICTXT, NPROW, NPCOL, MYROW, MYCOL
+          INTEGER          :: ierr, nflops
+    !     ..
+    !     .. Local Arrays ..
+          DOUBLE PRECISION, ALLOCATABLE :: DU(:),DV(:)
+          INTEGER, ALLOCATABLE :: PL(:),PU(:) 
+    !     ..
+    !     .. Execution Parts ..
+    
+    !      ICTXT = DESCA( CTXT_ )
+    !      CALL BLACS_GRIDINFO( DESCA( CTXT_ ), NPROW, NPCOL, MYROW, MYCOL )
+    
+          ALLOCATE( PL(LM),PU(LN),DU(LM),DV(LN), stat=ierr )
+    
+          nflops  = 0
+          DU(1:LM) = U( RIndex(1:LM) ) 
+          DV(1:LN) = V( CIndex(1:LN) ) 
+    
+          PL(1:LM) = RIndex( 1:LM ) 
+          PU(1:LN) = CIndex( 1:LN )
+    
+    !      write(*,*) "We are in front of CauchylikeEig"
+    !      call cpu_time(time) 
+          call CauchylikeEig( A,F,DU,DV,DIFL,DIFR,PL,PU,LM,LN,nflops )
+    !      call cpu_time(time1) 
+    !      time = time1 - time
+    !      write(*,*) 'Construct Cauchylike costs', time, LM, LN
+    
+    !      call TestOrth( A, LM, LN )
+
+          DEALLOCATE( PL,PU,DU,DV )
+    
+          END SUBROUTINE ConstCauchyEig
+
+
+! =====================================
+
+SUBROUTINE ConstCauchyEiglowrank( LM,LN,A,F,D,U,V,DIFL,DIFR,RIndex,CIndex,Rk) 
+!
+        use CauchyHssEig
+        IMPLICIT NONE
+!
+!     HSSPACK 
+!     S.G. Li,  National University of Defense Technology
+!     August 31th, 2019.  .
+!
+!     .. Scalar Arguments ..
+        INTEGER            LM, LN, Rk
+!     ..
+!     .. Array Arguments ..
+        INTEGER            RIndex( * ), CIndex(*)
+        DOUBLE PRECISION   A(*),F(*),U(*),V(*),DIFL(*), &
+                            DIFR( * ), D(*)
+!
+!     ..
+!
+!  Purpose
+!  =======
+!
+!  This routine constructs a Cauchy-like matrix locally with generators stored
+!  in matrix A, which has four or five columns. B is used as a workspace to 
+!  store the compute low-rank approximation of locally Cauchy-like submatrix.  
+!
+!  A(i,j) = U(i)*V^T(j) / (F(i)-D(j) )
+!
+!  Arguments
+!  =========
+!
+!  M      - (input) INTEGER
+!           The row dimension of locally matrix B, to be constructed. 
+! 
+!  N      - (input) INTEGER
+!           The column dimension of locally matrix B, to be constructed. 
+! 
+!  A      - (input) DOUBLE PRECISION Array, with dimension (LDA, 4 or 5) 
+!           Stores the generators of a Cauchy-like matrix. A =[U V D W] 
+! 
+!  LDA    - (input) INTEGER
+!           Leading dimension of A
+!
+!  B      - (output) DOUBLE PRECISION,  
+!           Stores the constructed Cauchy-like matrix with dimension (M, N).
+!           B is defined as B_{ij} = U_i*V_j / (D_i -W_j), for i,j=1,...,M.  
+!
+!           B is approximated by two low-rank matrices, B=X*Y, X is M-by-Rk, 
+!           and Y is Rk-by-N. X is stored in the first part of B, and Y is 
+!           stored in the second part. B is used as 1D array. 
+! 
+! RInd_start  - (input) INTEGER
+!               The starting position for row generators   
+!
+! CInd_Start  - (input) INTEGER
+!               The starting position for column generators
+!
+!  Rk     - (output) INTEGER
+!           It records the rank of this off-diagonal block. 
+!
+! ====================================================================== 
+!
+!     .. Parameters ..
+!
+        INTEGER            BLOCK_CYCLIC_2D, DLEN_, DTYPE_, CTXT_, M_, N_, &
+                            MB_, NB_, RSRC_, CSRC_, LLD_
+        PARAMETER          ( BLOCK_CYCLIC_2D = 1, DLEN_ = 9, DTYPE_ = 1, &
+                            CTXT_ = 2, M_ = 3, N_ = 4, MB_ = 5, NB_ = 6, &
+                            RSRC_ = 7, CSRC_ = 8, LLD_ = 9 )
+!     ..
+!     .. Local Scalars ..
+!      DOUBLE PRECISION :: time, time1
+       DOUBLE PRECISION :: tol
+!      INTEGER          :: ICTXT, NPROW, NPCOL, MYROW, MYCOL
+        INTEGER          :: ierr, nflops
+!     ..
+!     .. Local Arrays ..
+        DOUBLE PRECISION, ALLOCATABLE :: DU(:),DV(:)
+        INTEGER, ALLOCATABLE :: PL(:),PU(:) 
+!     ..
+!     .. Execution Parts ..
+
+!      ICTXT = DESCA( CTXT_ )
+!      CALL BLACS_GRIDINFO( DESCA( CTXT_ ), NPROW, NPCOL, MYROW, MYCOL )
+
+        ALLOCATE( PL(LM),PU(LN),DU(LM),DV(LN), stat=ierr )
+
+        tol = 1.0E-17
+        nflops  = 0
+        DU(1:LM) = U( RIndex(1:LM) ) 
+        DV(1:LN) = V( CIndex(1:LN) ) 
+
+        PL(1:LM) = RIndex( 1:LM ) 
+        PU(1:LN) = CIndex( 1:LN )
+
+!      write(*,*) "We are in front of CauchylikeEig"
+!      call cpu_time(time) 
+        call compress_cauchyeig2( LM,LN,A,F,D,DU,DV,DIFL,DIFR,tol,Rk,PL,PU )
+!      call cpu_time(time1) 
+!      time = time1 - time
+!      write(*,*) 'Construct Cauchylike costs', time, M, N
+
+!      call TestOrth( A, M, N )
+
+        DEALLOCATE( PL,PU,DU,DV )
+
+        END SUBROUTINE ConstCauchyEiglowrank
+
+! =====================================
+!
+SUBROUTINE is_intersect( M, SetA, N, SetB, is_inters )
+!
+! This function tests whether SetA and SetB have common elements.
+! If they are intersected, return .TRUE., ELSE, return .FALSE. 
+!
+! SetA and SetB are 1D arrays, and their lengths are M and N, respectively.
+! 
+! ========================
+ 
+    INTEGER   :: M, N
+    LOGICAL   :: is_inters
+!
+    INTEGER   :: SetA(*), SetB(*)
+!
+! ..
+! .. Local parameters ..
+    INTEGER  :: MN, I
+
+    MN = min(M,N)
+
+    is_inters = .TRUE.
+
+    IF( M > N ) THEN
+        DO I=1, MN
+            if( any(SetA(1:M) == SetB(I)) ) then
+                is_inters = .FALSE.
+                return 
+            end if
+        END DO  
+    ELSE
+        DO I=1, MN
+            if( any(SetB(1:N) == SetA(I)) ) then
+                is_inters = .FALSE.
+                return 
+            end if
+        END DO
+    END IF  
+
+    RETURN 
+
+END SUBROUTINE is_intersect
+
+! =========================
+!!!!!!
+Subroutine PDtestOrth1( M,N, A,IA,JA,DESCA)
+!
+     use MPI
+!
+!    include 'mpif.h'
+!
+!  This routine tests the orthogonality of matrix A, which is a distributed !  matrix. 
+!
+    INTEGER  ::  M,N,IA,JA
+!
+    INTEGER  ::  DESCA(*)
+    DOUBLE PRECISION :: A(*)
+! ..
+! .. Parameters ..
+    INTEGER            BLOCK_CYCLIC_2D, DLEN_, DTYPE_, CTXT_, M_, N_, &
+                        MB_, NB_, RSRC_, CSRC_, LLD_
+    PARAMETER          ( BLOCK_CYCLIC_2D = 1, DLEN_ = 9, DTYPE_ = 1,  &
+                        CTXT_ = 2, M_ = 3, N_ = 4, MB_ = 5, NB_ = 6,   &
+                        RSRC_ = 7, CSRC_ = 8, LLD_ = 9 )
+    DOUBLE PRECISION   ZERO, ONE
+    PARAMETER          ( ZERO = 0.0D+0, ONE = 1.0D+0 )
+! ..
+! .. Local Scalars .. 
+    INTEGER            ICTXT, info, LDB, MYCOL,MYROW,&
+                        MB,NB,NPCOL, NPROW, IQROW, IQCOL,mpierr, &
+                        NP,NQ,IIA,JJA
+    REAL(8)            err,errmax
+!  ..
+!  .. Local Arrays ..
+    INTEGER    ::   DESCB(DLEN_)
+    DOUBLE PRECISION, ALLOCATABLE ::  B(:,:), D(:,:)
+!     ..
+!     .. External Functions ..
+        INTEGER            INDXL2G, NUMROC
+        EXTERNAL           INDXL2G, NUMROC
+!
+!  
+    CALL BLACS_GRIDINFO( DESCA( CTXT_ ), NPROW, NPCOL, MYROW, MYCOL )
+!
+    ICTXT = DESCA( CTXT_ )
+    MB    = DESCA( MB_ )
+    NB    = DESCA( NB_ )
+!
+    CALL INFOG2L( IA, JA, DESCA, NPROW, NPCOL, MYROW, MYCOL, &
+                    IIA, JJA, IQROW, IQCOL )
+
+    NP = NUMROC( N, DESCA( NB_ ), MYROW, IQROW, NPROW )
+    NQ = NUMROC( N, DESCA( NB_ ), MYCOL, IQCOL, NPCOL )
+    
+    !LDB = MAX(MB,NP)
+    LDB = NP
+
+!   WRITE(*,*) 'NP,NQ=',NP,NQ,MYROW,MYCOL,MB,NB,IQROW,IQCOL,M,N
+!  B is the transpose of A. Here, we assume NPROW == NPCOL
+    CALL DESCINIT( DESCB, N, N, NB, NB, IQROW, IQCOL, ICTXT, LDB, &
+                    INFO )
+    IF( INFO .NE. 0 ) WRITE(*,*) "Descinit is wrong."
+!
+    ALLOCATE( B(LDB,NQ),D(NP,NQ) )
+
+!  B = AT*A
+    CALL PDGEMM( 'T','N',N,N,M,ONE,A,1,1,DESCA,A,1,1,DESCA,&
+                ZERO,B,1,1,DESCB  )  
+    D = ZERO
+    CALL PDLASET( 'A',N,N,ZERO,ONE,D,1,1,DESCB ) 
+
+    D(:,:) = B(:,:)-D(:,:)
+    
+    err = maxval(abs(D))
+    CALL MPI_ALLREDUCE(err,errmax,1,MPI_REAL8,MPI_MAX,MPI_COMM_WORLD, &
+                            mpierr)
+    IF(MYROW.EQ.0 .AND. MYCOL.EQ.0 ) print *,'Error Orthogonality:',errmax
+
+    DEALLOCATE( B,D )
+
+    End Subroutine PDtestOrth1
+
+
+! ===================================
+! 
+    SUBROUTINE ConstCauchylowrank( M,N,A,LDA,H,RIndex,CIndex,Rk ) 
+!
+        use cauchylowrank
+        IMPLICIT NONE
+!
+!     HSSPACK 
+!     S.G. Li,  National University of Defense Technology
+!     August 31th, 2019.  .
+!
+!     .. Scalar Arguments ..
+        INTEGER            M, N, LDA, Rk
+!     ..
+!     .. Array Arguments ..
+        DOUBLE PRECISION   A( LDA,* ), H( * )
+        INTEGER            RIndex(*), CIndex(*)
+!
+!     ..
+!
+!  Purpose
+!  =======
+!
+!  This routine constructs a Cauchy-like matrix locally with generators stored
+!  in matrix A, which has four or five columns. B is used as a workspace to 
+!  store the compute low-rank approximation of locally Cauchy-like submatrix.  
+!
+!  Arguments
+!  =========
+!
+!  M      - (input) INTEGER
+!           The row dimension of locally matrix B, to be constructed. 
+! 
+!  N      - (input) INTEGER
+!           The column dimension of locally matrix B, to be constructed. 
+! 
+!  A      - (input) DOUBLE PRECISION Array, with dimension (LDA, 4 or 5) 
+!           Stores the generators of a Cauchy-like matrix. A =[U V D W] 
+! 
+!  LDA    - (input) INTEGER
+!           Leading dimension of A
+!
+!  B      - (output) DOUBLE PRECISION,  
+!           Stores the constructed Cauchy-like matrix with dimension (M, N).
+!           B is defined as B_{ij} = U_i*V_j / (D_i -W_j), for i,j=1,...,M.  
+!
+!           B is approximated by two low-rank matrices, B=X*Y, X is M-by-Rk, 
+!           and Y is Rk-by-N. X is stored in the first part of B, and Y is 
+!           stored in the second part. B is used as 1D array. 
+! 
+! RInd_start  - (input) INTEGER
+!               The starting position for row generators   
+!
+! CInd_Start  - (input) INTEGER
+!               The starting position for column generators
+!
+!  Rk     - (output) INTEGER
+!           It records the rank of this off-diagonal block. 
+!
+! ====================================================================== 
+
+!     ..
+!     .. Local Scalars ..
+        DOUBLE PRECISION :: tol
+        DOUBLE PRECISION :: time, time1
+!     ..
+!     .. Local Arrays ..
+        DOUBLE PRECISION, ALLOCATABLE :: D(:), F(:), U(:), V(:)
+
+!     ..
+!     .. Execution Parts ..
+
+        tol = 1.0E-17
+! 
+        ALLOCATE( D(M),F(N),U(M),V(N) )
+
+        D(1:M) = A(RIndex(1:M),1) 
+        F(1:N) = A(CIndex(1:N),2) 
+        U(1:M) = A(RIndex(1:M),3) 
+        V(1:N) = A(CIndex(1:N),4) 
+
+        !call cpu_time(time) 
+        call compress_cauchy( 'R',D,F,U,V,tol,M,N,H,Rk ) 
+        !call cpu_time(time1) 
+        !time = time1 - time
+        !write(*,*) 'Construct low-rank approx. costs', time, M, N, Rk
+
+        DEALLOCATE( D,F,U,V ) 
+
+        END SUBROUTINE ConstCauchyLowrank

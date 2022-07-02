@@ -1,0 +1,30 @@
+F77=mpif90 -fc=ifort
+#F77FLAGS=-O3 -openmp -mavx
+F77FLAGS=-O3 -mavx -heap-arrays -fp-model precise
+#F77FLAGS=-O0 -g -traceback
+
+F77LOADER=mpif90 -fc=ifort
+F77LOADERFLAGS=-O3 -mavx -heap-arrays -fp-model precise
+#F77LOADERFLAGS=-O0 -g
+
+ARCH      = ar
+ARCHFLAGS = cr
+RANLIB    = ranlib
+RANLIB    = ranlib
+CPPFLAG   = -fpp
+MACRO_D_PREFIX = -D
+INCFLAG   = -I./
+MODFLAG   = -module ./ 
+
+INSTALLROOT=/BIGDATA1/nudt_jliu_1/lsg/THDLA/lib
+PSMMALIB=$(INSTALLROOT)/libpsmma.a
+
+MKLROOT=/BIGDATA1/app/intelcompiler/14.0.2/composer_xe_2013_sp1.2.144/mkl/
+#MKLROOT=/BIGDATA1/app/intelcompiler/15.0.1/composer_xe_2015.1.133/mkl
+#BLASLIB=-Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_intel_thread.a $(MKLROOT)/lib/intel64/libmkl_core.a -Wl,--end-group -liomp5 -lpthread -lm
+#BLASLIB=-Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_core.a \
+#       $(MKLROOT)/lib/intel64/libmkl_intel_thread.a $(MKLROOT)/lib/intel64/libmkl_blacs_intelmpi_lp64.a -Wl,--end-group -lpthread -lm
+#BLACSLIB=$(MKLROOT)/lib/intel64/libmkl_scalapack_lp64.a
+
+BLASLIB=-mkl=parallel
+BLACSLIB=-lmkl_scalapack_lp64 -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -lmkl_blacs_intelmpi_lp64 -lpthread -lm

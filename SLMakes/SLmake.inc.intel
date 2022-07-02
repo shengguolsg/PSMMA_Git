@@ -1,0 +1,39 @@
+#F77=mpif90 -fc=ifort
+F77=mpiifort
+#F77FLAGS=-g -fopenmp -fcheck=all,no-array-temps
+#F77FLAGS=-O3 -qopenmp -heap-arrays -fp-model precise -rdynamic -mavx
+F77FLAGS=-O3 -qopenmp -heap-arrays -fp-model precise -rdynamic -CB -CU -mavx
+#F77FLAGS=-O2 -heap-arrays -fp-model precise -rdynamic -traceback -CB -CU
+#F77FLAGS=-O0 -g -rdynamic -funwind-tables -fcheck=all -fno-backtrace
+
+F77LOADER=mpif90 -fc=ifort
+#F77LOADER=mpiifort
+#F77FLAGS=-O3 -qopenmp -heap-arrays -fp-model precise -rdynamic -CB -CU -mavx
+F77LOADFLAGS=-O2 -heap-arrays -fp-model precise -rdynamic -traceback -CU -CB
+#F77LOADERFLAGS= -g -O0  -rdynamic -funwind-tables -fcheck=all -fno-backtrace
+
+ARCH      = ar
+ARCHFLAGS = cr
+RANLIB    = ranlib
+CPPFLAG   = -fpp
+MACRO_D_PREFIX = -D
+INCFLAG   = -I./
+MODFLAG   = -module ./ 
+
+INSTALLROOT=/home/lsg/MyCodes/THDLA/lib
+MKLROOT=/opt/intel/oneapi/mkl/2022.0.2
+PSMMALIB=$(INSTALLROOT)/libpsmma.a
+
+#BLASLIB= -L/home/lsg/local/Openblas/lib/ -lscalapack -lopenblas -lgfortran
+#BLASLIB= -L/home/lsg/local/lib/ -lscalapack -llapack -lblas
+
+#BLASLIB=-Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_intel_thread.a $(MKLROOT)/lib/intel64/libmkl_core.a -Wl,--end-group -liomp5 -lpthread -lm
+#BLASLIB=-Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_core.a \
+#       $(MKLROOT)/lib/intel64/libmkl_intel_thread.a $(MKLROOT)/lib/intel64/libmkl_blacs_intelmpi_lp64.a -Wl,--end-group -lpthread -lm
+#BLACSLIB=$(MKLROOT)/lib/intel64/libmkl_scalapack_lp64.a
+
+BLASLIB=$(MKLROOT)/lib/intel64/libmkl_scalapack_lp64.a -Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_core.a \
+        $(MKLROOT)/lib/intel64/libmkl_sequential.a $(MKLROOT)/lib/intel64/libmkl_blacs_intelmpi_lp64.a -Wl,--end-group -lpthread -lm -lgfortran
+
+#BLASLIB=-mkl=parallel
+#BLACSLIB=-lmkl_scalapack_lp64 -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -lmkl_blacs_intelmpi_lp64 -lpthread -lm

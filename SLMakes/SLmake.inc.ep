@@ -1,0 +1,21 @@
+F77=mpif90
+F77FLAGS=-O3 -qopenmp -mavx
+#F77FLAGS=-O0 -g
+
+F77LOADER=mpif90
+F77LOADERFLAGS=-O3 -qopenmp
+#F77LOADERFLAGS=-O0 -g
+
+ARCH      = ar
+ARCHFLAGS = cr
+RANLIB    = ranlib
+
+MKLROOT=/vol7/opt/intel/compilers_and_libraries_2019.4.243/linux/mkl/
+PUMMALIB=/vol7/home/lishengguo/PUMMA_OLD/libpumma.a
+#BLASLIB=-Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_intel_thread.a $(MKLROOT)/lib/intel64/libmkl_core.a -Wl,--end-group -liomp5 -lpthread -lm
+#BLASLIB=-Wl,--start-group $(MKLROOT)/lib/intel64/libmkl_intel_lp64.a $(MKLROOT)/lib/intel64/libmkl_core.a \
+       $(MKLROOT)/lib/intel64/libmkl_intel_thread.a $(MKLROOT)/lib/intel64/libmkl_blacs_intelmpi_lp64.a -Wl,--end-group -lpthread -lm
+#BLACSLIB=$(MKLROOT)/lib/intel64/libmkl_scalapack_lp64.a
+
+BLASLIB=-mkl=parallel
+BLACSLIB=-lmkl_scalapack_lp64 -lmkl_intel_lp64 -lmkl_core -lmkl_intel_thread -lmkl_blacs_intelmpi_lp64 -lpthread -lm
