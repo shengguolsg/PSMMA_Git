@@ -27,7 +27,7 @@ program psmma_testtoeplitz
   integer, external :: indxl2g, numroc
 
 
-  n= 2048  ! Size of the problem
+  n= 1024  ! Size of the problem
   !n= 16384  ! Size of the problem
   !n= 32768   ! Size of the problem
   !n = 768 
@@ -35,7 +35,14 @@ program psmma_testtoeplitz
   allocate( D(2*N-1),TA(2*N-1) )
   ldta = 2*N -1
 
-  call random_number(D)
+  !  call random_number(D)
+  DO I =1, N-1
+     D(I) = ONE*((N-I+1)-1)
+  END DO
+  D(N) = N*N*ONE
+  DO I=N+1, ldta
+     D(I) = ONE*(1-(I-N+1))
+  END DO
   TA = D
 
   ! Initialize MPI
@@ -64,11 +71,11 @@ program psmma_testtoeplitz
    call blacs_gridinfo(ictxt,nprow,npcol,myrow,mycol)
   
    !nb = n/nprow 
-   nb= 64   ! Blocksize of the 2D block-cyclic distribution
+   nb= 16   ! Blocksize of the 2D block-cyclic distribution
    if(myrow.eq.0 .and. mycol.eq.0) write(*,*) "n,nprow,npcol,nb=", n, nprow,npcol,nb
 
   ! A is a dense n x n distributed Toeplitz matrix
-  if(myid<nprow*npcol) then
+  if(myid < nprow*npcol) then
     locr=numroc(n,nb,myrow,IZERO,nprow)
     locc=numroc(n,nb,mycol,IZERO,npcol)
     allocate(A(locr*locc))
@@ -122,8 +129,8 @@ program psmma_testtoeplitz
 
 !  WRITE(*,*) "PDGEMM finishes"
 
-  !REDIST = .true.
-  REDIST = .false.
+  REDIST = .true.
+  !REDIST = .false.
   LWORK = 6*locr*locc
   allocate( WORK(LWORK) )
   ! /* Matrix-matrix multiplication */

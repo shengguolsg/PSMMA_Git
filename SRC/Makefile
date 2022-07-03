@@ -4,7 +4,7 @@ include ../SLMakes/SLmake.inc.intel
 
 F90 = $(F77)
 
-DPOBJ = Cauchylowrank.o aux_hss.o BasicMM.o CauchyHssEig.o \
+DPOBJ = Cauchylowrank.o aux_hss.o BasicMM.o CauchyHssEig.o mdgeqp3.o \
         Scal_Aux.o Auxil_2p5D.o pscauchy_compute.o psmma_cauchy.o \
 	pscauchyeig_compute.o psmma_cauchyeig.o \
         psmma_toeplitz.o pstoeplitz_compute.o psmma_hankel.o pshankel_compute.o	

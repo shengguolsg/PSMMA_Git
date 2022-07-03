@@ -960,4 +960,231 @@ Subroutine PDtestOrth1( M,N, A,IA,JA,DESCA)
 
         DEALLOCATE( D,F,U,V ) 
 
-        END SUBROUTINE ConstCauchyLowrank
+      END SUBROUTINE ConstCauchyLowrank
+
+
+! ===================================
+! 
+    SUBROUTINE ConstToeplitzlowrank( M,N,A,LDA,H,RIndex,CIndex,Rk ) 
+!
+        IMPLICIT NONE
+!
+!     HSSPACK 
+!     S.G. Li,  National University of Defense Technology
+!     July 2th, 2022.  .
+!
+!     .. Scalar Arguments ..
+        INTEGER            M, N, LDA, Rk
+!     ..
+!     .. Array Arguments ..
+        DOUBLE PRECISION   A( * ), H( * )
+        INTEGER            RIndex(*), CIndex(*)
+!
+!     ..
+!
+!  Purpose
+!  =======
+!
+!  This routine constructs a Toeplitz matrix locally with generators stored
+!  in matrix A, which is a vector of length LDA. B is used as a workspace to 
+!  store the compute low-rank approximation of locally Toeplitz submatrix by using
+!  RRQR methods.
+!
+!  Arguments
+!  =========
+!
+!  M      - (input) INTEGER
+!           The row dimension of locally matrix B, to be constructed. 
+! 
+!  N      - (input) INTEGER
+!           The column dimension of locally matrix B, to be constructed. 
+! 
+!  A      - (input) DOUBLE PRECISION Array, with dimension (LDA).
+!           Stores the generators of a Toeplitz matrix. T(i,j) = G(K+j-i),
+!           with K is the dimension of original matrix T, i,j=1,...,M or N. 
+! 
+!  LDA    - (input) INTEGER
+!           Leading dimension of A
+!
+!  B      - (output) DOUBLE PRECISION,  
+!           Stores the constructed Cauchy-like matrix with dimension (M, N).
+!           B is defined as B_{ij} = A(K+CIndex(J)-RIndex(i)), for i,j=1,...,M.  
+!
+!           B is approximated by two low-rank matrices, B=X*Y, X is M-by-Rk, 
+!           and Y is Rk-by-N. X is stored in the first part of B, and Y is 
+!           stored in the second part. B is used as 1D array. 
+! 
+! RInd_start  - (input) INTEGER
+!               The starting position for row generators   
+!
+! CInd_Start  - (input) INTEGER
+!               The starting position for column generators
+!
+!  Rk     - (output) INTEGER
+!           It records the rank of this off-diagonal block. 
+!
+! ====================================================================== 
+
+!     ..
+!     .. Local Scalars ..
+        DOUBLE PRECISION :: tol
+        DOUBLE PRECISION :: time, time1
+        INTEGER          :: K
+!     ..
+!     .. Local Arrays ..
+        DOUBLE PRECISION, ALLOCATABLE :: B(:)
+
+!     ..
+!     .. Execution Parts ..
+
+        ALLOCATE( B(M*N) )
+
+!               
+!       Construct the local Toeplitz matrix
+        K = (LDA+1) / 2
+        call ConstToeplitz( M,N,A,LDA,K,B,RIndex,CIndex )
+
+        !call cpu_time(time) 
+        call compress_rrqr( M,N,B,M,H,Rk ) 
+        !call cpu_time(time1) 
+        !time = time1 - time
+        !write(*,*) 'Construct low-rank approx. costs', time, M, N, Rk
+
+!        Rk = MIN(M,N)
+        IF( Rk == MIN(M,N) ) THEN
+           call ConstToeplitz( M,N,A,LDA,K,H,RIndex,CIndex )
+        END IF
+
+        DEALLOCATE( B ) 
+
+      END SUBROUTINE ConstToeplitzLowrank
+
+!!!!!
+      SUBROUTINE Compress_RRQR( M,N,A,LDA,H,Rk  )
+!
+        IMPLICIT NONE
+!
+!     HSSPACK 
+!     S.G. Li,  National University of Defense Technology
+!     July 2th, 2022.  .
+!
+!     .. Scalar Arguments ..
+        INTEGER            M, N, LDA, Rk
+!     ..
+!     .. Array Arguments ..
+        DOUBLE PRECISION   A( * ), H( * )
+!
+!     ..
+!
+!  Purpose
+!  =======
+!
+!  This routine compresses a low-rank approximation of matrix A by using the
+!  RRQR method. The low-rank approximation is stored in H = Q*R, and the first
+!  part stores Q and the second part stores R. 
+!
+!  Arguments
+!  =========
+!
+!  M      - (input) INTEGER
+!           The row dimension of locally matrix A
+! 
+!  N      - (input) INTEGER
+!           The column dimension of locally matrix A
+! 
+!  A      - (input) DOUBLE PRECISION Array, with dimension (LDA,*).
+!           On entry, stores the Toeplitz matrix which is stored explicitly. 
+!           On exit, it is destroyed. 
+!        
+!  LDA    - (input) INTEGER
+!           Leading dimension of A
+!
+!  H      - (output) DOUBLE PRECISION,  
+!           Stores the constructed low-rank approximations of matrix A. 
+!           A \approx H = Q*R, where Q is stored first and R is stored 
+!           secondly. 
+! 
+!  Rk     - (output) INTEGER
+!           It records the rank of matrix A. 
+!
+! ====================================================================== 
+
+!     ..
+!     .. Local Scalars ..
+        DOUBLE PRECISION :: TOL
+        DOUBLE PRECISION :: time, time1
+        LOGICAL          :: FORWARD        
+        INTEGER          :: LWORK, NB, ITAU,IWORK, II, IUC, IWRT, INFO, RKK
+!     ..
+!     .. Local Scalar Parameters ..
+        DOUBLE PRECISION, PARAMETER :: ZERO = 0.0D0, ONE = 1.0D0
+!     ..
+!     .. Local Arrays ..
+        INTEGER, ALLOCATABLE :: JPVT(:) 
+        DOUBLE PRECISION, ALLOCATABLE :: WORK(:)
+
+!     ..
+!     .. Execution Parts ..
+
+        NB = 64
+        LWORK = (N+1) * NB + 2*N
+        ITAU = 1
+        IWORK = ITAU + N
+        
+        ALLOCATE( JPVT(N),WORK(LWORK+N) )
+
+!  *******************************************        
+!  Construct RRQR of matrix A
+!  *******************************************
+        JPVT( 1:N ) = 0
+        TOL = 1.0E-13
+!        WRITE(*,*) "MDGQP3 is to be called"
+        CALL MDGEQP3( M,N,A,LDA,JPVT,WORK(ITAU),WORK(IWORK),LWORK,TOL,RKK,INFO )
+        ! 
+        ! Matrix A is destoryed, and the upper triangle of the array contains
+        ! the min(M,N)-by-N upper trapezoidal matrix R; the elements below
+        ! the diagonal, together with the array TAU, represent the orthogonal
+        ! matrix Q as a product of min(M,N) elementary reflectors. 
+
+        ! Determine the rank of A
+        DO II = 1, RKK
+           IUC = (II-1)*LDA+II
+           IF( ABS(A(IUC)) <= TOL*ABS( A(1) ) ) THEN
+              EXIT
+           ENDIF
+        END DO
+        Rk = II - 1
+!        WRITE(*,*) 'GEQP3 rank is ', Rk, M, N, RKK
+        IF( Rk == MIN(M,N) ) THEN
+           GOTO 90
+        END IF
+
+!  *******************************************        
+!  Construct the orthogonal matrix R
+!  Need to construct R first. 
+!  *******************************************
+        IWRT  = M*Rk+1
+        CALL DLASET( 'A',Rk,N,ZERO,ZERO,H(IWRT),Rk  )
+        CALL DLACPY( 'U',Rk,N,A,LDA,H(IWRT),Rk  )
+
+        ! Perf the permuation
+        ! R = R*P
+        FORWARD = .FALSE.
+        CALL DLAPMT( FORWARD,Rk, N, H(IWRT), Rk, JPVT )
+           
+!  *********************************************      
+!  Construct the orthogonal matrix Q
+!  The upper triangle part of A is destoryed. 
+!  *********************************************
+!        LWORK = M*NB
+        CALL DORGQR( M,Rk,Rk,A,LDA,WORK(ITAU),WORK(IWORK),LWORK,INFO )
+        CALL DLACPY( 'A',M,Rk,A,LDA,H,M )
+
+        
+  90    CONTINUE
+        
+        DEALLOCATE( JPVT)
+        DEALLOCATE( WORK )
+        
+      END SUBROUTINE Compress_RRQR
+      

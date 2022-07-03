@@ -144,8 +144,8 @@
 
       ! Call PSMMA Algorithm for Cauchy-like matrices
       time1 = MPI_Wtime()
-      CALL PSTOEPLITZ_COMPUTE( N,K, ALPHA,WORK(IAT),LDAT,DESCAT,B, LDB,&
-                             BETA, WORK(IQT), LDQT, 0, 0, WORK(IWEND) ) 
+      CALL PSTOEPLITZ_COMPUTE( N,K,ALPHA,WORK(IAT),LDAT,DESCAT,B, LDB,&
+                             BETA,WORK(IQT),LDQT,0, 0, WORK(IWEND) ) 
       time2 = MPI_Wtime()
       IF( MYROW.EQ.0 .AND. MYCOL.EQ.0 ) THEN
            write(*,*) 'The PSMMA with redistribution costs', time2-time1

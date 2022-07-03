@@ -131,6 +131,7 @@
       INTEGER              NPCOL, NPROW, NROLL, NQ, ierr, LengthR, &
                            IPDW, IPB2
       DOUBLE PRECISION     TBETA
+      LOGICAL              islowrank      
 !     ..
 !     .. Local Arrays ..      
       INTEGER, ALLOCATABLE :: RIndex(:), CIndex(:) 
@@ -216,9 +217,9 @@
 !
 !     Compute pointer addresses for buffer
 !
-      IPA = 1
-      IPB = IPA +  MP*NQ
-      IPDW = IPB + (NQ+NB)*NQ  ! only for without low-rank
+      IPA  = 1
+      IPB  = IPA +  MP*NQ
+      IPDW = IPB +  2*MP*NQ  ! only for without low-rank
 !
 !     Copy all blocks of A to WORK(IPA) with column block presorting
 !
@@ -244,12 +245,46 @@
 !
          IF( LengthC.EQ.0 .OR. LengthR.EQ.0 ) GOTO 80
 !         
-         ! Construct full local submatrix B
-         CALL ConstToeplitz( KBP,NQ,B,LDB,K,WORK(IPB),RIndex,CIndex )
+!        Check whether the intersections of RIndex and CIndex is empty.         
+!        If empty, use low-rank approximation; Different from Cauchy-like matrix,
+!        it need to construct the full matrix first and then use RRQR to construct
+!        low-rank approximation. Then, perform low-rank matrix-matix multiplication. 
+!         
+!        Otherwise, treat it as a dense matrix.
+         call is_intersect( LengthC,CIndex,LengthR,RIndex,islowrank )
+!         islowrank = .false.
+!
+         IF ( islowrank ) THEN
+            ! Form low-rank approximation
+            CALL ConstToeplitzlowrank( KBP,NQ,B,LDB,WORK(IPB),RIndex,&
+                  CIndex,Rk )
+            !IF (MYROW.EQ.0 .AND. MYCOL.EQ.0 ) THEN
+            !     WRITE(*,*) "MYROW,MYCOL,Rk=", MYROW,MYCOL,KBP,NQ,Rk
+            !END IF
+!
+             IF( Rk == MIN(KBP,NQ) ) THEN
+                  CALL DGEMM( 'N', 'N', MP, NQ, KBP,ALPHA,WORK(IPA), &
+                    MAX(1,MP),WORK(IPB),MAX(1,KBP),TBETA, C,LDC )
+             ELSE                  
+!                 Perform two low-rank matrix multiplications
+                  CALL DGEMM('N','N',MP,Rk,KBP,ONE,WORK(IPA),MAX(1,MP),&
+                        WORK(IPB),KBP,ZERO,WORK(IPDW),MP  )             
+!                 MP == KBP
+                  IPB2 = IPB+KBP*Rk 
+                   CALL DGEMM( 'N','N',MP,NQ,Rk,ALPHA,WORK(IPDW),MP,&
+                         WORK(IPB2), Rk, TBETA, C, LDC )
+             END IF
+             TBETA = ONE
+!
+         ELSE
+            ! Construct full local submatrix B
+            CALL ConstToeplitz( KBP,NQ,B,LDB,K,WORK(IPB),RIndex,CIndex )
 
-         CALL DGEMM( 'N', 'N', MP, NQ, KBP,ALPHA,WORK(IPA), &
-              MAX(1,MP),WORK(IPB),MAX(1,KBP),TBETA, C,LDC )
-         TBETA = ONE
+            CALL DGEMM( 'N', 'N', MP, NQ, KBP,ALPHA,WORK(IPA), &
+                    MAX(1,MP),WORK(IPB),MAX(1,KBP),TBETA, C,LDC )
+            TBETA = ONE
+!
+         END IF
 
 !        Shift A (WORK(IPA)) to the left
 !
