@@ -2,10 +2,10 @@
       SUBROUTINE PSMMA_CAUCHY( N,K,ALPHA,A,IA,JA,DESCA,B,LDB, &
                                BETA,Q,IQ,JQ,DESCQ,WORK,REDIST )
 !
-       use MPI
+!       use MPI
        implicit none
     
-!      include 'mpif.h'
+      include 'mpif.h'
 !
 !  -- HSSPACK computational routine (version 1.0.0) --
 !  -- HSSPACK is a software package provided by Nat. Univ. of Defense Tech. --

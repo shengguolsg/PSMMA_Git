@@ -2,11 +2,12 @@
    SUBROUTINE PSMMA_CAUCHYEIG( N,K,ID,ALPHA,A,IA,JA,DESCA,F,D,U,V,DIFL,&
                            DIFR,BETA,Q,IQ,JQ,DESCQ,WORK,Redist )
 !
-      USE MPI
-      USE Scal_Aux
+!      USE MPI
+      !USE Scal_Aux
+      USE scal_aux
       implicit none
     
-!      include 'mpif.h'
+      include 'mpif.h'
 !
 !  -- PSMMA computational routine (version 1.0.0) --
 !

@@ -111,8 +111,13 @@
 !  lower and upper triangular generators are stored. 
 !
 !  2) Low-rank approximation is implemented in this routine. 
-!      
-!  Local  Parameters
+!
+! July 3th, 2022
+! 
+! 1) A : N-by-K, B: K-by-K, C: N-by-K. Essentially we assume N == K.
+!       
+! 2) When NPROW .NE. NPCOL, the MB, NB and KB for BDD may not be the same.        
+!  
 !  =================
 !
 !     .. Parameters ..
@@ -126,7 +131,7 @@
 !     ..
 !     .. Local Scalars ..
       INTEGER              INFO, IPA, IPB, ICTXT
-      INTEGER              K1, KAQ, KBP, Rk, KP, NB, KB
+      INTEGER              K1, KAQ, KBP, Rk, KP, NB, KB, MB
       INTEGER              MP, MRCOL, MRROW, MYCOL, MYROW, LengthC
       INTEGER              NPCOL, NPROW, NROLL, NQ, ierr, LengthR, &
                            IPDW, IPB2
@@ -152,10 +157,14 @@
 !
 !     Get grid parameters
 !
+!     MB : row block of A and C
+!     KB : col block of A, row block of B
+!     NB : col block of B and C
+
       ICTXT = DESCA( CTXT_ )
-      ! We assume MB == NB
-      NB = DESCA( NB_ )
-      KB = NB
+      MB = DESCA( MB_ )  
+      KB = DESCA( NB_ ) ! We assume MB == NB
+      NB = KB
 
       CALL BLACS_GRIDINFO( ICTXT, NPROW, NPCOL, MYROW, MYCOL )
 !

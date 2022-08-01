@@ -1,10 +1,10 @@
       SUBROUTINE PZMDFTL( N, K, NB, KB, ALPHA, B, LDB, BETA, C, LDC, &
                           IMROW, IMCOL, WORK, RWORK )
 !
-        use MPI
+!        use MPI
         IMPLICIT NONE
 
-!       include  'mpif.h'
+       include  'mpif.h'
 !
 !  -- PDMDFTM 
 !

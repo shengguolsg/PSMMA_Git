@@ -35,8 +35,8 @@
 
   COMMON /CONTEXT / ICTXT
 
-  n  = 1024   ! Size of the problem
-  nb = 512   ! Blocksize of the 2D block-cyclic distribution
+  n  = 4800   ! Size of the problem
+  !nb = 512   ! Blocksize of the 2D block-cyclic distribution
   PI  = 4.0E+0 * ATAN( ONE )
   Wn  = EXP( -2.0E+0*PI*CI/N )
 
@@ -52,6 +52,13 @@
   ! at the end of the above loop, nprocs is always divisible by np_cols
 
    nprow = np/npcol
+  
+   if( nprow .ne. npcol ) then
+     write(*,*) "nprow must equal to npcol"
+!     exit
+   endif 
+
+   nb = n/nprow
 
    call blacs_get( IZERO,IZERO,ictxt )
    call blacs_gridinit( ictxt,'R',nprow,npcol )
@@ -60,7 +67,7 @@
    IF( myid .eq. 0 ) write(*,*) 'N, NB, nprow, npcol=', N,NB,nprow,npcol
 
   ! A is a dense n x n distributed FFT matrix
-  if(myid<nprow*npcol) then
+  if( myid<nprow*npcol) then
     locr=numroc(n,nb,myrow,IZERO,nprow)
     locc=numroc(n,nb,mycol,IZERO,npcol)
     allocate(A(locr*locc))
@@ -102,6 +109,10 @@
   time = MPI_Wtime()-time1
   IF( myid .eq. 0 ) write(*,*) 'PZGEMM costs ', time
 
+  time1 = MPI_Wtime()
+  call PZGEMM( 'N','N',n,n,n,one,A,1,1,descA,B,1,1,descA,zero,X1,1,1,descA )
+  time = MPI_Wtime()-time1
+  IF( myid .eq. 0 ) write(*,*) 'PZGEMM costs ', time
 
   LWORK = (5*NB+6)*NB
   LWORK1= 7*NB
@@ -110,7 +121,12 @@
 
   ! /* Matrix-matrix multiplication */
   time1 = MPI_Wtime()
-  call pzmdftL( n,n,nb,nb,one,B,locr,zero,X,locr,0,0,WORK,RWORK )
+  call pzmdftL1( n,n,nb,nb,one,B,locr,zero,X,locr,0,0,WORK,RWORK )
+  time = MPI_Wtime()-time1
+  IF( myid .eq. 0 ) write(*,*) 'PZMDFTL costs ', time
+
+  time1 = MPI_Wtime()
+  call pzmdftL1( n,n,nb,nb,one,B,locr,zero,X,locr,0,0,WORK,RWORK )
   time = MPI_Wtime()-time1
   IF( myid .eq. 0 ) write(*,*) 'PZMDFTL costs ', time
 

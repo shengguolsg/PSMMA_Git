@@ -795,9 +795,9 @@ END SUBROUTINE is_intersect
 !!!!!!
 Subroutine PDtestOrth1( M,N, A,IA,JA,DESCA)
 !
-     use MPI
+!     use MPI
 !
-!    include 'mpif.h'
+    include 'mpif.h'
 !
 !  This routine tests the orthogonality of matrix A, which is a distributed !  matrix. 
 !
